@@ -12,6 +12,7 @@ import {
   dashboardPage,
   scanScreen,
   notFoundScreen,
+  quoteOfTheDay,
 } from './views.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -130,6 +131,8 @@ app.get('/dashboard', requireAuth, (req, res) => {
   const scansByCard = {};
   const lastScanByCard = {};
   let total = 0;
+  let scansToday = 0;
+  const todayStr = new Date().toDateString();
   for (const scan of db.scans) {
     if (!cardIds.has(scan.cardId)) continue;
     total += 1;
@@ -137,15 +140,30 @@ app.get('/dashboard', requireAuth, (req, res) => {
     if (!lastScanByCard[scan.cardId] || scan.at > lastScanByCard[scan.cardId]) {
       lastScanByCard[scan.cardId] = scan.at;
     }
+    if (new Date(scan.at).toDateString() === todayStr) scansToday += 1;
   }
 
   const topCard = cards.slice().sort((a, b) => (scansByCard[b.id] || 0) - (scansByCard[a.id] || 0))[0];
   const origin = `${req.protocol}://${req.get('host')}`;
+  const now = new Date();
+  const today = now.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' });
+  const quote = quoteOfTheDay(now);
 
   res.send(
     layout(
       business.name,
-      dashboardPage({ business, cards, scansByCard, lastScanByCard, total, topCard, origin })
+      dashboardPage({
+        business,
+        cards,
+        scansByCard,
+        lastScanByCard,
+        total,
+        scansToday,
+        topCard,
+        origin,
+        today,
+        quote,
+      })
     )
   );
 });

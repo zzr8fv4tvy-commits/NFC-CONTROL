@@ -14,6 +14,9 @@ export function layout(title, body, { bare = false } = {}) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)} · Tapflow</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/css/style.css">
 </head>
 <body class="${bare ? 'bare' : ''}">
@@ -23,11 +26,13 @@ ${bare ? '' : '<script src="/js/dashboard.js"></script>'}
 </html>`;
 }
 
+const LOGO = `<img class="logo-mark" src="/img/logo.png" alt="Tapflow">`;
+
 export function authShell(title, formHtml, footerLinkHtml) {
   return `
   <div class="auth-screen">
     <div class="auth-card">
-      <div class="brand">Tapflow</div>
+      ${LOGO}
       <h1>${esc(title)}</h1>
       ${formHtml}
       <p class="auth-footer">${footerLinkHtml}</p>
@@ -77,6 +82,7 @@ export function loginPage(error) {
 export function scanScreen({ businessName, destination }) {
   return `
   <div class="scan-screen">
+    ${LOGO}
     <div class="waves">
       <div class="ring"></div><div class="ring"></div><div class="ring"></div>
       <div class="dot"></div>
@@ -91,20 +97,47 @@ export function scanScreen({ businessName, destination }) {
 export function notFoundScreen() {
   return `
   <div class="scan-screen">
+    ${LOGO}
     <h1>Tarjeta no encontrada</h1>
     <p>Este enlace no corresponde a ninguna tarjeta activa.</p>
   </div>`;
 }
 
-function cardRow(card, scanCount, lastScanIso, origin) {
+const ICONS = {
+  cards: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5.5" width="18" height="13" rx="2.2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="6.5" y1="14.5" x2="10.5" y2="14.5"/></svg>`,
+  taps: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="18.2" r="1.1" fill="currentColor" stroke="none"/><path d="M8.3 15a5.2 5.2 0 0 1 7.4 0"/><path d="M5.3 11.8a9.5 9.5 0 0 1 13.4 0"/></svg>`,
+  today: `<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M13.2 2 3.6 13.8h6.7l-1.1 8.2 9.6-11.8h-6.7l1.1-8.2Z"/></svg>`,
+  trophy: `<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 2.3 14.6 8.4 21.2 9l-5 4.4 1.5 6.5L12 16.6 6.3 19.9l1.5-6.5-5-4.4 6.6-.6L12 2.3Z"/></svg>`,
+};
+
+const QUOTES = [
+  'Cada toque abre una puerta.',
+  'Una reseña hoy, un cliente mañana.',
+  'Lo simple, bien hecho, gana.',
+  'Constancia primero, resultados después.',
+  'Menos fricción, más reseñas.',
+  'Un buen momento vale un buen tap.',
+  'Pequeños gestos, grandes negocios.',
+];
+
+export function quoteOfTheDay(date = new Date()) {
+  const dayOfYear = Math.floor(
+    (Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) -
+      Date.UTC(date.getFullYear(), 0, 0)) /
+      86400000
+  );
+  return QUOTES[dayOfYear % QUOTES.length];
+}
+
+function cardRow(card, scanCount, lastScanIso, origin, isTop) {
   const trackingUrl = `${origin}/t/${card.id}`;
   return `
-  <tr data-card-id="${esc(card.id)}">
+  <tr data-card-id="${esc(card.id)}"${isTop ? ' class="is-top"' : ''}>
     <td>
-      <div class="biz">${esc(card.name)}</div>
+      <div class="biz">${esc(card.name)}${isTop ? '<span class="crown">🏆</span>' : ''}</div>
       <div class="card-id">${esc(card.id)}</div>
     </td>
-    <td class="num">${scanCount}</td>
+    <td class="num" data-count-target="${scanCount}">0</td>
     <td>${lastScanIso ? `<span class="ago" data-iso="${esc(lastScanIso)}">${esc(lastScanIso)}</span>` : '—'}</td>
     <td class="dest-cell">
       <span class="dest-text">${esc(card.destination)}</span>
@@ -123,50 +156,101 @@ function cardRow(card, scanCount, lastScanIso, origin) {
   </tr>`;
 }
 
-export function dashboardPage({ business, cards, scansByCard, lastScanByCard, total, topCard, origin, addError }) {
-  const rows = cards.length
-    ? cards
-        .slice()
-        .sort((a, b) => (scansByCard[b.id] || 0) - (scansByCard[a.id] || 0))
-        .map((c) => cardRow(c, scansByCard[c.id] || 0, lastScanByCard[c.id], origin))
+export function dashboardPage({
+  business,
+  cards,
+  scansByCard,
+  lastScanByCard,
+  total,
+  scansToday,
+  topCard,
+  origin,
+  addError,
+  today,
+  quote,
+}) {
+  const sortedCards = cards
+    .slice()
+    .sort((a, b) => (scansByCard[b.id] || 0) - (scansByCard[a.id] || 0));
+
+  const hasTop = topCard && (scansByCard[topCard.id] || 0) > 0;
+
+  const rows = sortedCards.length
+    ? sortedCards
+        .map((c) => cardRow(c, scansByCard[c.id] || 0, lastScanByCard[c.id], origin, hasTop && c.id === topCard.id))
         .join('')
     : `<tr class="empty-row"><td colspan="5">Todavía no has añadido ninguna tarjeta.</td></tr>`;
 
+  const topName = hasTop ? topCard.name : null;
+
   return `
   <div class="admin">
-    <div class="admin-top">
-      <div>
-        <div class="brand-small">Tapflow</div>
-        <h1>${esc(business.name)}</h1>
+    <div class="admin-header">
+      <div class="brand-block">
+        ${LOGO}
+        <div class="tagline">Más reseñas. Más clientes.</div>
       </div>
-      <div class="top-right">
-        <div class="stat-row">
-          <div class="stat"><div class="n">${cards.length}</div><div class="l">tarjetas</div></div>
-          <div class="stat"><div class="n">${total}</div><div class="l">escaneos totales</div></div>
-        </div>
+      <div class="account-block">
+        <span class="account-name">${esc(business.name)}</span>
         <form method="post" action="/logout"><button type="submit" class="link-btn">Cerrar sesión</button></form>
       </div>
     </div>
 
-    ${
-      topCard && (scansByCard[topCard.id] || 0) > 0
-        ? `<p class="highlight">Tu tarjeta con más escaneos es <strong>${esc(topCard.name)}</strong>, con ${scansByCard[topCard.id]}.</p>`
-        : ''
-    }
+    <h1 class="page-title">Tu panel</h1>
 
-    <p class="section-title">Añadir tarjeta</p>
-    <form method="post" action="/cards" class="add-card">
-      ${addError ? `<p class="form-error">${esc(addError)}</p>` : ''}
-      <input type="text" name="name" placeholder="Nombre de la tarjeta (ej. Mesa 3, Mostrador)" required>
-      <input type="url" name="destination" placeholder="URL de destino (reseña, Instagram, etc.)" required>
-      <button type="submit">Añadir tarjeta</button>
-    </form>
+    <div class="stat-grid">
+      <div class="stat-card">
+        <div class="stat-icon">${ICONS.cards}</div>
+        <div class="stat-num" data-count-target="${cards.length}">0</div>
+        <div class="stat-label">Tarjetas activas</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon">${ICONS.taps}</div>
+        <div class="stat-num" data-count-target="${total}">0</div>
+        <div class="stat-label">Escaneos totales</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon success">${ICONS.today}</div>
+        <div class="stat-num" data-count-target="${scansToday}">0</div>
+        <div class="stat-label">Escaneos hoy</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon">${ICONS.trophy}</div>
+        <div class="stat-num" data-count-target="${hasTop ? scansByCard[topCard.id] : 0}">0</div>
+        <div class="stat-label">Tarjeta líder</div>
+        ${topName ? `<div class="stat-sub">${esc(topName)}</div>` : ''}
+      </div>
+      <div class="today-card">
+        <div class="today-label">Hoy es</div>
+        <div class="today-date">${esc(today)}</div>
+        <div class="today-quote">“${esc(quote)}”</div>
+      </div>
+    </div>
 
-    <p class="section-title">Tus tarjetas</p>
-    <table>
-      <thead><tr><th>Tarjeta</th><th>Escaneos</th><th>Último</th><th>Destino</th><th></th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>
+    <div class="panel">
+      <div class="section-head"><p class="section-title">Añadir tarjeta</p></div>
+      <form method="post" action="/cards" class="add-card-form">
+        ${addError ? `<p class="form-error">${esc(addError)}</p>` : ''}
+        <input type="text" name="name" placeholder="Nombre de la tarjeta (ej. Mesa 3, Mostrador)" required>
+        <input type="url" name="destination" placeholder="URL de destino (reseña, Instagram, etc.)" required>
+        <button type="submit">Añadir</button>
+      </form>
+    </div>
+
+    <div class="section-head"><p class="section-title">Tus tarjetas</p></div>
+    <div class="table-wrap">
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Tarjeta</th><th>Escaneos</th><th>Último</th><th>Destino</th><th></th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="admin-footer">
+      ${LOGO}
+      <div class="tagline">Convierte escaneos en clientes.</div>
+    </div>
   </div>
   <div class="toast" id="toast"></div>`;
 }
