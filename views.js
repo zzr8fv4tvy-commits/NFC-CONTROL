@@ -18,6 +18,7 @@ export function layout(title, body, { bare = false } = {}) {
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/css/style.css">
+${bare ? '' : '<script src="/js/chart.umd.min.js"></script>'}
 </head>
 <body class="${bare ? 'bare' : ''}">
 ${body}
@@ -27,6 +28,10 @@ ${bare ? '' : '<script src="/js/dashboard.js"></script>'}
 }
 
 const LOGO = `<img class="logo-mark" src="/img/logo.png" alt="Tapflow">`;
+
+function brandMark(logo, businessName) {
+  return logo ? `<img class="logo-mark custom-logo" src="${esc(logo)}" alt="${esc(businessName || 'Logo')}">` : LOGO;
+}
 
 export function authShell(title, formHtml, footerLinkHtml) {
   return `
@@ -62,12 +67,13 @@ export function signupPage(error) {
   );
 }
 
-export function loginPage(error) {
+export function loginPage(error, notice) {
   return authShell(
     'Inicia sesión',
     `
     <form method="post" action="/login" class="stack-form">
       ${error ? `<p class="form-error">${esc(error)}</p>` : ''}
+      ${notice ? `<p class="form-success">${esc(notice)}</p>` : ''}
       <label>Email
         <input type="email" name="email" placeholder="tu@negocio.com" required>
       </label>
@@ -75,15 +81,60 @@ export function loginPage(error) {
         <input type="password" name="password" required>
       </label>
       <button type="submit">Entrar</button>
+      <a class="forgot-link" href="/forgot-password">¿Olvidaste tu contraseña?</a>
     </form>`,
     `¿Aún no tienes cuenta? <a href="/signup">Crea una</a>`
   );
 }
 
-export function scanScreen({ businessName, destination }) {
+export function forgotPasswordPage({ error, sent } = {}) {
+  return authShell(
+    'Recuperar contraseña',
+    `
+    <div class="stack-form">
+      ${error ? `<p class="form-error">${esc(error)}</p>` : ''}
+      ${
+        sent
+          ? `<p class="form-success">Si existe una cuenta con ese email, te hemos enviado un enlace para restablecer la contraseña. Revisa también spam.</p>`
+          : `
+      <form method="post" action="/forgot-password" class="stack-form">
+        <label>Email
+          <input type="email" name="email" placeholder="tu@negocio.com" required>
+        </label>
+        <button type="submit">Enviar enlace</button>
+      </form>`
+      }
+    </div>`,
+    `<a href="/login">Volver a iniciar sesión</a>`
+  );
+}
+
+export function resetPasswordPage({ token, error, invalid } = {}) {
+  if (invalid) {
+    return authShell(
+      'Enlace no válido',
+      `<p class="form-error">Este enlace ha caducado o ya se ha usado.</p>`,
+      `<a href="/forgot-password">Solicita uno nuevo</a>`
+    );
+  }
+  return authShell(
+    'Elige una nueva contraseña',
+    `
+    <form method="post" action="/reset-password/${esc(token)}" class="stack-form">
+      ${error ? `<p class="form-error">${esc(error)}</p>` : ''}
+      <label>Nueva contraseña
+        <input type="password" name="password" placeholder="Mínimo 6 caracteres" minlength="6" required>
+      </label>
+      <button type="submit">Guardar contraseña</button>
+    </form>`,
+    `<a href="/login">Volver a iniciar sesión</a>`
+  );
+}
+
+export function scanScreen({ businessName, destination, logo }) {
   return `
   <div class="scan-screen">
-    ${LOGO}
+    ${brandMark(logo, businessName)}
     <div class="waves">
       <div class="ring"></div><div class="ring"></div><div class="ring"></div>
       <div class="dot"></div>
@@ -91,8 +142,31 @@ export function scanScreen({ businessName, destination }) {
     <h1>Un momento…</h1>
     <p>${destination ? `Te llevamos a ${esc(businessName || 'la página')}.` : 'Esta tarjeta todavía no tiene un destino configurado.'}</p>
     ${destination ? `<a class="fallback-link" href="${esc(destination)}">¿No redirige? Toca aquí</a>` : ''}
+    ${logo ? `<div class="powered-by">${LOGO}<span>Creado con Tapflow</span></div>` : ''}
   </div>
   ${destination ? `<script>setTimeout(function(){ window.location.replace(${JSON.stringify(destination)}); }, 700);</script>` : ''}`;
+}
+
+export function landingScreen({ businessName, logo, links }) {
+  const buttons = (links || [])
+    .map((l) => `<a class="landing-link" href="${esc(l.url)}">${esc(l.label || l.url)}</a>`)
+    .join('');
+  return `
+  <div class="scan-screen landing-screen">
+    ${brandMark(logo, businessName)}
+    <h1>${esc(businessName || 'Elige una opción')}</h1>
+    <div class="landing-links">${buttons}</div>
+    ${logo ? `<div class="powered-by">${LOGO}<span>Creado con Tapflow</span></div>` : ''}
+  </div>`;
+}
+
+export function pausedScreen({ businessName, logo }) {
+  return `
+  <div class="scan-screen">
+    ${brandMark(logo, businessName)}
+    <h1>Tarjeta pausada</h1>
+    <p>Esta tarjeta está desactivada temporalmente. Vuelve a intentarlo más tarde.</p>
+  </div>`;
 }
 
 export function notFoundScreen() {
@@ -130,26 +204,85 @@ function todayCard(today) {
   </div>`;
 }
 
+function chartBlock(id, scansByDay, title) {
+  const labels = JSON.stringify(scansByDay.map((d) => d.label));
+  const data = JSON.stringify(scansByDay.map((d) => d.count));
+  return `
+  <div class="panel chart-panel">
+    <div class="section-head"><p class="section-title">${esc(title)}</p></div>
+    <div class="chart-wrap"><canvas id="${esc(id)}"></canvas></div>
+  </div>
+  <script>
+  (function(){
+    function draw(){
+      var el = document.getElementById(${JSON.stringify(id)});
+      if(!el || typeof Chart === 'undefined') return;
+      new Chart(el, {
+        type: 'line',
+        data: {
+          labels: ${labels},
+          datasets: [{
+            label: 'Escaneos',
+            data: ${data},
+            borderColor: '#C97F1E',
+            backgroundColor: 'rgba(240,169,78,.18)',
+            fill: true,
+            tension: .35,
+            pointRadius: 2,
+            pointBackgroundColor: '#C97F1E'
+          }]
+        },
+        options: {
+          plugins: { legend: { display: false } },
+          scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
+          responsive: true,
+          maintainAspectRatio: false
+        }
+      });
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', draw); else draw();
+  })();
+  </script>`;
+}
+
+function destCell(card, locationId) {
+  if (card.mode === 'landing') {
+    const count = (card.links || []).length;
+    return `
+    <td class="dest-cell">
+      <span class="dest-text">Página con ${count} enlace${count === 1 ? '' : 's'}</span>
+      <a class="link-btn" href="/l/${esc(locationId)}/cards/${esc(card.id)}/links">Editar enlaces</a>
+    </td>`;
+  }
+  return `
+    <td class="dest-cell">
+      <span class="dest-text">${esc(card.destination || '')}</span>
+      <form method="post" action="/l/${esc(locationId)}/cards/${esc(card.id)}/update" class="edit-dest-form hidden">
+        <input type="url" name="destination" value="${esc(card.destination || '')}" required>
+        <button type="submit">Guardar</button>
+      </form>
+    </td>`;
+}
+
 function cardRow(card, scanCount, lastScanIso, origin, locationId, isTop) {
   const trackingUrl = `${origin}/t/${card.id}`;
+  const paused = card.active === false;
+  const classes = [isTop && 'is-top', paused && 'is-paused'].filter(Boolean).join(' ');
   return `
-  <tr data-card-id="${esc(card.id)}"${isTop ? ' class="is-top"' : ''}>
+  <tr data-card-id="${esc(card.id)}"${classes ? ` class="${classes}"` : ''}>
     <td>
-      <div class="biz">${esc(card.name)}${isTop ? '<span class="crown">🏆</span>' : ''}</div>
+      <div class="biz">${esc(card.name)}${isTop ? '<span class="crown">🏆</span>' : ''}${paused ? '<span class="paused-badge">Pausada</span>' : ''}</div>
       <div class="card-id">${esc(card.id)}</div>
     </td>
     <td class="num" data-count-target="${scanCount}">0</td>
     <td>${lastScanIso ? `<span class="ago" data-iso="${esc(lastScanIso)}">${esc(lastScanIso)}</span>` : '—'}</td>
-    <td class="dest-cell">
-      <span class="dest-text">${esc(card.destination)}</span>
-      <form method="post" action="/l/${esc(locationId)}/cards/${esc(card.id)}/update" class="edit-dest-form hidden">
-        <input type="url" name="destination" value="${esc(card.destination)}" required>
-        <button type="submit">Guardar</button>
-      </form>
-    </td>
+    ${destCell(card, locationId)}
     <td class="actions">
       <button type="button" class="link-btn copy-link" data-url="${esc(trackingUrl)}">Copiar enlace</button>
-      <button type="button" class="link-btn edit-dest-btn">Editar URL</button>
+      ${card.mode === 'landing' ? '' : '<button type="button" class="link-btn edit-dest-btn">Editar URL</button>'}
+      <form method="post" action="/l/${esc(locationId)}/cards/${esc(card.id)}/toggle">
+        <button type="submit" class="link-btn">${paused ? 'Activar' : 'Pausar'}</button>
+      </form>
       <form method="post" action="/l/${esc(locationId)}/cards/${esc(card.id)}/delete" onsubmit="return confirm('¿Eliminar esta tarjeta? Se conservan los escaneos ya registrados.');">
         <button type="submit" class="del-btn">Eliminar</button>
       </form>
@@ -193,7 +326,7 @@ function locationCard(loc) {
   </a>`;
 }
 
-export function globalDashboardPage({ owner, locations, totalLocations, totalCards, totalScans, scansToday, today, addError }) {
+export function globalDashboardPage({ owner, locations, totalLocations, totalCards, totalScans, scansToday, scansByDay, today, addError }) {
   const locationsHtml = locations.length
     ? locations.map(locationCard).join('')
     : `<p class="empty-note">Todavía no has añadido ningún negocio.</p>`;
@@ -208,6 +341,8 @@ export function globalDashboardPage({ owner, locations, totalLocations, totalCar
       ${statCard(ICONS.today, scansToday, 'Escaneos hoy', null, true)}
       ${todayCard(today)}
     </div>
+
+    ${chartBlock('globalChart', scansByDay, 'Escaneos de los últimos 14 días (todos tus negocios)')}
 
     <div class="panel">
       <div class="section-head"><p class="section-title">Añadir negocio</p></div>
@@ -227,16 +362,20 @@ export function globalDashboardPage({ owner, locations, totalLocations, totalCar
 
 export function locationDashboardPage({
   location,
-  ownerEmail,
+  accountLabel,
+  isOwner,
   cards,
   scansByCard,
   lastScanByCard,
   total,
   scansToday,
+  scansByDay,
   topCard,
   origin,
   today,
   addError,
+  employees,
+  employeeError,
 }) {
   const sortedCards = cards
     .slice()
@@ -252,8 +391,50 @@ export function locationDashboardPage({
 
   const topName = hasTop ? topCard.name : null;
 
+  const employeesPanel = isOwner
+    ? `
+    <div class="panel">
+      <div class="section-head"><p class="section-title">Empleados con acceso a este negocio</p></div>
+      ${employeeError ? `<p class="form-error">${esc(employeeError)}</p>` : ''}
+      <form method="post" action="/l/${esc(location.id)}/employees" class="add-card-form employee-form">
+        <input type="email" name="email" placeholder="email@empleado.com" required>
+        <input type="password" name="password" placeholder="Contraseña (mín. 6)" minlength="6" required>
+        <button type="submit">Invitar</button>
+      </form>
+      <p class="form-hint">Los empleados solo ven y gestionan este negocio, no el resto de tu cuenta.</p>
+      ${
+        employees && employees.length
+          ? `<div class="employee-list">${employees
+              .map(
+                (e) => `
+          <div class="employee-row">
+            <span>${esc(e.email)}</span>
+            <form method="post" action="/l/${esc(location.id)}/employees/${esc(e.id)}/delete" onsubmit="return confirm('¿Quitar el acceso de este empleado?');">
+              <button type="submit" class="del-btn">Quitar acceso</button>
+            </form>
+          </div>`
+              )
+              .join('')}</div>`
+          : `<p class="empty-note">Todavía no has añadido empleados.</p>`
+      }
+    </div>`
+    : '';
+
+  const logoPanel = isOwner
+    ? `
+    <div class="panel">
+      <div class="section-head"><p class="section-title">Logo de tu negocio</p></div>
+      <p class="form-hint">Se mostrará en la pantalla que ven tus clientes al escanear la tarjeta, en vez del logo de Tapflow.</p>
+      ${location.logo ? `<img src="${esc(location.logo)}" class="current-logo" alt="Logo actual">` : ''}
+      <form method="post" action="/l/${esc(location.id)}/logo" enctype="multipart/form-data" class="logo-form">
+        <input type="file" name="logo" accept="image/png,image/jpeg,image/webp" required>
+        <button type="submit">Subir logo</button>
+      </form>
+    </div>`
+    : '';
+
   const inner = `
-    <a class="back-link" href="/dashboard">← Todos tus negocios</a>
+    ${isOwner ? `<a class="back-link" href="/dashboard">← Todos tus negocios</a>` : ''}
     <h1 class="page-title">${esc(location.name)}</h1>
 
     <div class="stat-grid">
@@ -264,17 +445,41 @@ export function locationDashboardPage({
       ${todayCard(today)}
     </div>
 
+    ${chartBlock('locationChart', scansByDay, 'Escaneos de los últimos 14 días')}
+
     <div class="panel">
       <div class="section-head"><p class="section-title">Añadir tarjeta</p></div>
-      <form method="post" action="/l/${esc(location.id)}/cards" class="add-card-form">
+      <form method="post" action="/l/${esc(location.id)}/cards" class="card-form" id="add-card-form">
         ${addError ? `<p class="form-error">${esc(addError)}</p>` : ''}
         <input type="text" name="name" placeholder="Nombre de la tarjeta (ej. Mesa 3, Mostrador)" required>
-        <input type="url" name="destination" placeholder="URL de destino (reseña, Instagram, etc.)" required>
-        <button type="submit">Añadir</button>
+        <div class="mode-toggle">
+          <label><input type="radio" name="cardMode" value="redirect" checked> Redirección directa</label>
+          <label><input type="radio" name="cardMode" value="landing"> Página con varios enlaces</label>
+        </div>
+        <div class="mode-fields mode-fields-redirect">
+          <input type="url" name="destination" placeholder="URL de destino (reseña, Instagram, etc.)">
+        </div>
+        <div class="mode-fields mode-fields-landing hidden">
+          <div class="link-rows">
+            <div class="link-row">
+              <input type="text" name="linkLabel[]" placeholder="Texto (ej. Google Reviews)">
+              <input type="url" name="linkUrl[]" placeholder="https://...">
+            </div>
+            <div class="link-row">
+              <input type="text" name="linkLabel[]" placeholder="Texto (ej. Instagram)">
+              <input type="url" name="linkUrl[]" placeholder="https://...">
+            </div>
+          </div>
+          <button type="button" class="link-btn add-link-row">+ Añadir enlace</button>
+        </div>
+        <button type="submit">Añadir tarjeta</button>
       </form>
     </div>
 
-    <div class="section-head"><p class="section-title">Tus tarjetas</p></div>
+    <div class="section-head">
+      <p class="section-title">Tus tarjetas</p>
+      <a class="link-btn" href="/l/${esc(location.id)}/export.csv">Exportar CSV</a>
+    </div>
     <div class="table-wrap">
       <div class="table-scroll">
         <table>
@@ -283,7 +488,38 @@ export function locationDashboardPage({
         </table>
       </div>
     </div>
+
+    ${employeesPanel}
+    ${logoPanel}
   `;
 
-  return pageChrome(ownerEmail || location.name, inner);
+  return pageChrome(accountLabel, inner);
+}
+
+export function editLinksPage({ location, card, error }) {
+  const links = card.links && card.links.length ? card.links : [{ label: '', url: '' }, { label: '', url: '' }];
+  const rows = links
+    .map(
+      (l) => `
+      <div class="link-row">
+        <input type="text" name="linkLabel[]" placeholder="Texto (ej. Google Reviews)" value="${esc(l.label || '')}">
+        <input type="url" name="linkUrl[]" placeholder="https://..." value="${esc(l.url || '')}">
+      </div>`
+    )
+    .join('');
+
+  const inner = `
+    <a class="back-link" href="/l/${esc(location.id)}">← Volver a ${esc(location.name)}</a>
+    <h1 class="page-title">Editar enlaces — ${esc(card.name)}</h1>
+    <div class="panel">
+      ${error ? `<p class="form-error">${esc(error)}</p>` : ''}
+      <form method="post" action="/l/${esc(location.id)}/cards/${esc(card.id)}/update-links" class="card-form">
+        <div class="link-rows">${rows}</div>
+        <button type="button" class="link-btn add-link-row">+ Añadir enlace</button>
+        <button type="submit">Guardar cambios</button>
+      </form>
+    </div>
+  `;
+
+  return pageChrome(location.name, inner);
 }

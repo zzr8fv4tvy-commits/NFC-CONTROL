@@ -5,10 +5,20 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_PATH = path.join(__dirname, 'data', 'db.json');
 
-// owners: la cuenta con la que se inicia sesión (email + contraseña).
+// owners: la cuenta con la que se inicia sesión (email + contraseña), dueña de uno o varios negocios.
 // locations: los negocios/locales de un owner (uno o varios).
+// employees: cuentas de empleados, cada una atada a un único location (acceso limitado).
 // cards: tarjetas NFC, cada una pertenece a un location.
-const EMPTY_DB = { owners: [], locations: [], cards: [], scans: [] };
+// scans: eventos de escaneo de una tarjeta.
+// resetTokens: tokens de recuperación de contraseña para owners.
+const EMPTY_DB = {
+  owners: [],
+  locations: [],
+  employees: [],
+  cards: [],
+  scans: [],
+  resetTokens: [],
+};
 
 // Cola simple para evitar que dos escrituras a la vez se pisen entre sí.
 let writeQueue = Promise.resolve();
@@ -25,6 +35,8 @@ export function readDB() {
     }
     if (!Array.isArray(parsed.cards)) parsed.cards = [];
     if (!Array.isArray(parsed.scans)) parsed.scans = [];
+    if (!Array.isArray(parsed.employees)) parsed.employees = [];
+    if (!Array.isArray(parsed.resetTokens)) parsed.resetTokens = [];
     return parsed;
   } catch (err) {
     console.error('No se pudo leer data/db.json, se usa una base vacía:', err.message);
