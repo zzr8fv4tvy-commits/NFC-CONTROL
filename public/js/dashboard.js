@@ -58,3 +58,42 @@ document.querySelectorAll('.edit-dest-btn').forEach((btn) => {
     text.classList.toggle('hidden');
   });
 });
+
+// ---------- Tipo de tarjeta: redirección directa vs. varios enlaces ----------
+document.querySelectorAll('.mode-toggle').forEach((toggle) => {
+  const form = toggle.closest('form');
+  if (!form) return;
+  const redirectFields = form.querySelector('.mode-fields-redirect');
+  const landingFields = form.querySelector('.mode-fields-landing');
+
+  toggle.querySelectorAll('input[name="cardMode"]').forEach((radio) => {
+    radio.addEventListener('change', () => {
+      const isLanding = form.querySelector('input[name="cardMode"]:checked')?.value === 'landing';
+      if (redirectFields) redirectFields.classList.toggle('hidden', isLanding);
+      if (landingFields) landingFields.classList.toggle('hidden', !isLanding);
+      const destInput = redirectFields ? redirectFields.querySelector('input[name="destination"]') : null;
+      if (destInput) destInput.required = !isLanding;
+    });
+  });
+});
+
+// ---------- Añadir/quitar filas de enlaces (landing pages) ----------
+document.querySelectorAll('.add-link-row').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const container = btn.parentElement.querySelector('.link-rows') || btn.previousElementSibling;
+    if (!container) return;
+    const row = document.createElement('div');
+    row.className = 'link-row';
+    row.innerHTML =
+      '<input type="text" name="linkLabel[]" placeholder="Texto (ej. TripAdvisor)">' +
+      '<input type="url" name="linkUrl[]" placeholder="https://...">' +
+      '<button type="button" class="link-btn remove-link-row">✕</button>';
+    container.appendChild(row);
+  });
+});
+
+document.addEventListener('click', (e) => {
+  if (e.target.classList && e.target.classList.contains('remove-link-row')) {
+    e.target.closest('.link-row')?.remove();
+  }
+});
