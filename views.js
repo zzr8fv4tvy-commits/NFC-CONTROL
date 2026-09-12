@@ -47,7 +47,7 @@ export function signupPage(error) {
     <form method="post" action="/signup" class="stack-form">
       ${error ? `<p class="form-error">${esc(error)}</p>` : ''}
       <label>Nombre de tu negocio
-        <input type="text" name="businessName" placeholder="Champion Burger" required>
+        <input type="text" name="businessName" placeholder="Tu negocio" required>
       </label>
       <p class="form-hint">Podrás añadir más negocios o locales luego, desde tu cuenta.</p>
       <label>Email
