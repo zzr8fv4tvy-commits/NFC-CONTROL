@@ -4,7 +4,6 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import path from 'path';
 import multer from 'multer';
-import QRCode from 'qrcode';
 import { fileURLToPath } from 'url';
 import { readDB, writeDB } from './db.js';
 import { sendPasswordResetEmail } from './email.js';
@@ -543,35 +542,6 @@ app.post('/l/:id/cards/:cardId/delete', requireAuth, (req, res) => {
   db.cards = db.cards.filter((c) => !(c.id === req.params.cardId && c.locationId === location.id));
   writeDB(db);
   res.redirect(`/l/${location.id}?ok=card_deleted`);
-});
-
-// ---------- Código QR de una tarjeta ----------
-app.get('/l/:id/cards/:cardId/qr.png', requireAuth, async (req, res) => {
-  const db = readDB();
-  const location = accessibleLocation(req, db);
-  if (!location) return res.redirect(homeRedirectPath(req, db));
-
-  const card = db.cards.find((c) => c.id === req.params.cardId && c.locationId === location.id);
-  if (!card) return res.redirect(`/l/${location.id}`);
-
-  const origin = `${req.protocol}://${req.get('host')}`;
-  const url = `${origin}/t/${card.id}`;
-
-  try {
-    const buffer = await QRCode.toBuffer(url, {
-      width: 480,
-      margin: 1,
-      color: { dark: '#18150F', light: '#FFFFFFFF' },
-    });
-    res.setHeader('Content-Type', 'image/png');
-    res.setHeader('Cache-Control', 'private, max-age=3600');
-    if (req.query.download) {
-      res.setHeader('Content-Disposition', `attachment; filename="${slugify(card.name)}-qr.png"`);
-    }
-    res.send(buffer);
-  } catch (err) {
-    res.status(500).send('No se pudo generar el código QR.');
-  }
 });
 
 // ---------- Exportar escaneos a CSV ----------

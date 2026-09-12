@@ -266,7 +266,6 @@ function destCell(card, locationId) {
 
 function cardRow(card, scanCount, lastScanIso, origin, locationId, isTop) {
   const trackingUrl = `${origin}/t/${card.id}`;
-  const qrUrl = `/l/${esc(locationId)}/cards/${esc(card.id)}/qr.png`;
   const paused = card.active === false;
   const classes = [isTop && 'is-top', paused && 'is-paused'].filter(Boolean).join(' ');
   return `
@@ -278,12 +277,6 @@ function cardRow(card, scanCount, lastScanIso, origin, locationId, isTop) {
     <td class="num" data-count-target="${scanCount}">0</td>
     <td>${lastScanIso ? `<span class="ago" data-iso="${esc(lastScanIso)}">${esc(lastScanIso)}</span>` : '—'}</td>
     ${destCell(card, locationId)}
-    <td class="qr-cell">
-      <a href="${trackingUrl}" target="_blank" rel="noopener" title="Ver tarjeta">
-        <img class="qr-thumb" src="${qrUrl}" width="52" height="52" alt="Código QR de ${esc(card.name)}" loading="lazy">
-      </a>
-      <a class="link-btn qr-dl" href="${qrUrl}?download=1">Descargar QR</a>
-    </td>
     <td class="actions">
       <a class="link-btn" href="${trackingUrl}" target="_blank" rel="noopener">Ver tarjeta</a>
       <button type="button" class="link-btn copy-link" data-url="${esc(trackingUrl)}">Copiar enlace</button>
@@ -330,8 +323,8 @@ function onboardingPanel() {
     <div class="section-head"><p class="section-title">Primeros pasos</p></div>
     <ol class="onboarding-steps">
       <li><strong>Crea tu primera tarjeta</strong> con el formulario de abajo: dale un nombre y elige a dónde quieres llevar a tus clientes (una reseña de Google, tu Instagram, o una página con varios enlaces).</li>
-      <li><strong>Pruébala</strong> con el botón "Ver tarjeta" o escaneando su código QR con el móvil, antes de ponerla en marcha.</li>
-      <li><strong>Ponla en marcha</strong>: descarga el QR para imprimirlo, o pide tu tarjeta NFC física y grábale el enlace.</li>
+      <li><strong>Pruébala</strong> con el botón "Ver tarjeta" antes de ponerla en marcha, para comprobar que lleva al sitio correcto.</li>
+      <li><strong>Ponla en marcha</strong>: usa "Copiar enlace" para grabar la URL en tu tarjeta NFC física y colócala donde la vean tus clientes.</li>
     </ol>
   </div>`;
 }
@@ -417,7 +410,7 @@ export function locationDashboardPage({
     ? sortedCards
         .map((c) => cardRow(c, scansByCard[c.id] || 0, lastScanByCard[c.id], origin, location.id, hasTop && c.id === topCard.id))
         .join('')
-    : `<tr class="empty-row"><td colspan="6">Todavía no has añadido ninguna tarjeta.</td></tr>`;
+    : `<tr class="empty-row"><td colspan="5">Todavía no has añadido ninguna tarjeta.</td></tr>`;
 
   const topName = hasTop ? topCard.name : null;
 
@@ -516,7 +509,7 @@ export function locationDashboardPage({
     <div class="table-wrap">
       <div class="table-scroll">
         <table>
-          <thead><tr><th>Tarjeta</th><th>Escaneos</th><th>Último</th><th>Destino</th><th>QR</th><th></th></tr></thead>
+          <thead><tr><th>Tarjeta</th><th>Escaneos</th><th>Último</th><th>Destino</th><th></th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
       </div>
