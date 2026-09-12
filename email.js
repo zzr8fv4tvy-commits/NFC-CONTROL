@@ -44,6 +44,7 @@ export async function sendPasswordResetEmail({ to, resetUrl }) {
       return { sent: false, reason: 'resend-error' };
     }
 
+    console.log(`[email] Enviado correctamente a ${to}`);
     return { sent: true };
   } catch (err) {
     console.error('[email] Error enviando email con Resend:', err.message);
