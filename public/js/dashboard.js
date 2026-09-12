@@ -14,6 +14,48 @@ function showToast(msg) {
   setTimeout(() => t.classList.remove('show'), 1600);
 }
 
+// ---------- Mensaje de confirmación tras una acción (redirect ?ok=...) ----------
+var FLASH_MESSAGES = {
+  welcome: '¡Bienvenido a Tapflow! 🎉',
+  location_added: 'Negocio añadido ✅',
+  card_added: 'Tarjeta añadida ✅',
+  card_updated: 'URL actualizada ✅',
+  links_saved: 'Enlaces guardados ✅',
+  card_paused: 'Tarjeta pausada',
+  card_active: 'Tarjeta activada ✅',
+  card_deleted: 'Tarjeta eliminada',
+  employee_added: 'Empleado invitado ✅',
+  employee_removed: 'Acceso retirado',
+  logo_updated: 'Logo actualizado ✅',
+};
+
+(function () {
+  const admin = document.querySelector('.admin[data-flash]');
+  const key = admin ? admin.dataset.flash : '';
+  if (key && FLASH_MESSAGES[key]) {
+    setTimeout(() => showToast(FLASH_MESSAGES[key]), 250);
+  }
+  if (key && window.history && window.history.replaceState) {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('ok');
+    window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+  }
+})();
+
+// ---------- Saludo según la hora del dispositivo ----------
+(function () {
+  const el = document.getElementById('greeting');
+  if (!el) return;
+  const h = new Date().getHours();
+  let g = 'Hola';
+  if (h < 6) g = 'Buenas noches';
+  else if (h < 13) g = 'Buenos días';
+  else if (h < 20) g = 'Buenas tardes';
+  else g = 'Buenas noches';
+  const name = el.dataset.name;
+  el.textContent = name ? `${g}, ${name.charAt(0).toUpperCase()}${name.slice(1)} 👋` : `${g} 👋`;
+})();
+
 function animateCount(el) {
   const target = Number(el.dataset.countTarget || '0');
   if (!target) {
