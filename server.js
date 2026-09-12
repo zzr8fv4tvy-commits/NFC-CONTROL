@@ -9,10 +9,10 @@ import {
   layout,
   signupPage,
   loginPage,
-  dashboardPage,
+  globalDashboardPage,
+  locationDashboardPage,
   scanScreen,
   notFoundScreen,
-  quoteOfTheDay,
 } from './views.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -35,7 +35,7 @@ app.use(
 );
 
 function requireAuth(req, res, next) {
-  if (!req.session.businessId) return res.redirect('/login');
+  if (!req.session.ownerId) return res.redirect('/login');
   next();
 }
 
@@ -43,24 +43,32 @@ function slugify(s) {
   return String(s)
     .toLowerCase()
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[̀-ͯ]/g, '')
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/(^-|-$)/g, '')
     .slice(0, 30) || 'tarjeta';
 }
 
-function currentBusiness(req, db) {
-  return db.businesses.find((b) => b.id === req.session.businessId);
+function currentOwner(req, db) {
+  return db.owners.find((o) => o.id === req.session.ownerId);
+}
+
+function ownedLocation(req, db) {
+  return db.locations.find((l) => l.id === req.params.id && l.ownerId === req.session.ownerId);
+}
+
+function todayLabel(date = new Date()) {
+  return date.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
 // ---------- Home ----------
 app.get('/', (req, res) => {
-  res.redirect(req.session.businessId ? '/dashboard' : '/login');
+  res.redirect(req.session.ownerId ? '/dashboard' : '/login');
 });
 
 // ---------- Signup ----------
 app.get('/signup', (req, res) => {
-  if (req.session.businessId) return res.redirect('/dashboard');
+  if (req.session.ownerId) return res.redirect('/dashboard');
   res.send(layout('Crear cuenta', signupPage()));
 });
 
@@ -74,27 +82,35 @@ app.post('/signup', (req, res) => {
   }
 
   const db = readDB();
-  if (db.businesses.some((b) => b.email === email)) {
+  if (db.owners.some((o) => o.email === email)) {
     return res.send(layout('Crear cuenta', signupPage('Ya existe una cuenta con ese email.')));
   }
 
-  const business = {
+  const owner = {
     id: crypto.randomUUID(),
     email,
     passwordHash: bcrypt.hashSync(password, 10),
+    createdAt: new Date().toISOString(),
+  };
+  db.owners.push(owner);
+
+  const location = {
+    id: crypto.randomUUID(),
+    ownerId: owner.id,
     name: businessName,
     createdAt: new Date().toISOString(),
   };
-  db.businesses.push(business);
+  db.locations.push(location);
+
   writeDB(db);
 
-  req.session.businessId = business.id;
+  req.session.ownerId = owner.id;
   res.redirect('/dashboard');
 });
 
 // ---------- Login ----------
 app.get('/login', (req, res) => {
-  if (req.session.businessId) return res.redirect('/dashboard');
+  if (req.session.ownerId) return res.redirect('/dashboard');
   res.send(layout('Iniciar sesión', loginPage()));
 });
 
@@ -102,13 +118,13 @@ app.post('/login', (req, res) => {
   const email = (req.body.email || '').trim().toLowerCase();
   const password = req.body.password || '';
   const db = readDB();
-  const business = db.businesses.find((b) => b.email === email);
+  const owner = db.owners.find((o) => o.email === email);
 
-  if (!business || !bcrypt.compareSync(password, business.passwordHash)) {
+  if (!owner || !bcrypt.compareSync(password, owner.passwordHash)) {
     return res.send(layout('Iniciar sesión', loginPage('Email o contraseña incorrectos.')));
   }
 
-  req.session.businessId = business.id;
+  req.session.ownerId = owner.id;
   res.redirect('/dashboard');
 });
 
@@ -116,16 +132,85 @@ app.post('/logout', (req, res) => {
   req.session.destroy(() => res.redirect('/login'));
 });
 
-// ---------- Dashboard ----------
+// ---------- Panel global (todos los negocios de la cuenta) ----------
 app.get('/dashboard', requireAuth, (req, res) => {
   const db = readDB();
-  const business = currentBusiness(req, db);
-  if (!business) {
+  const owner = currentOwner(req, db);
+  if (!owner) {
     req.session.destroy(() => res.redirect('/login'));
     return;
   }
 
-  const cards = db.cards.filter((c) => c.businessId === business.id);
+  const locations = db.locations.filter((l) => l.ownerId === owner.id);
+  const locationIds = new Set(locations.map((l) => l.id));
+  const cards = db.cards.filter((c) => locationIds.has(c.locationId));
+  const cardIds = new Set(cards.map((c) => c.id));
+  const cardToLocation = new Map(cards.map((c) => [c.id, c.locationId]));
+
+  const cardsByLocation = {};
+  for (const c of cards) cardsByLocation[c.locationId] = (cardsByLocation[c.locationId] || 0) + 1;
+
+  const scansByLocation = {};
+  let totalScans = 0;
+  let scansToday = 0;
+  const todayStr = new Date().toDateString();
+  for (const scan of db.scans) {
+    if (!cardIds.has(scan.cardId)) continue;
+    totalScans += 1;
+    const locId = cardToLocation.get(scan.cardId);
+    scansByLocation[locId] = (scansByLocation[locId] || 0) + 1;
+    if (new Date(scan.at).toDateString() === todayStr) scansToday += 1;
+  }
+
+  const locationSummaries = locations
+    .map((l) => ({
+      id: l.id,
+      name: l.name,
+      cardCount: cardsByLocation[l.id] || 0,
+      scanCount: scansByLocation[l.id] || 0,
+    }))
+    .sort((a, b) => b.scanCount - a.scanCount);
+
+  res.send(
+    layout(
+      'Tus negocios',
+      globalDashboardPage({
+        owner,
+        locations: locationSummaries,
+        totalLocations: locations.length,
+        totalCards: cards.length,
+        totalScans,
+        scansToday,
+        today: todayLabel(),
+      })
+    )
+  );
+});
+
+app.post('/locations', requireAuth, (req, res) => {
+  const name = (req.body.name || '').trim();
+  if (!name) return res.redirect('/dashboard');
+
+  const db = readDB();
+  const location = {
+    id: crypto.randomUUID(),
+    ownerId: req.session.ownerId,
+    name,
+    createdAt: new Date().toISOString(),
+  };
+  db.locations.push(location);
+  writeDB(db);
+  res.redirect(`/l/${location.id}`);
+});
+
+// ---------- Panel de un negocio concreto ----------
+app.get('/l/:id', requireAuth, (req, res) => {
+  const db = readDB();
+  const location = ownedLocation(req, db);
+  if (!location) return res.redirect('/dashboard');
+
+  const owner = currentOwner(req, db);
+  const cards = db.cards.filter((c) => c.locationId === location.id);
   const cardIds = new Set(cards.map((c) => c.id));
 
   const scansByCard = {};
@@ -145,15 +230,13 @@ app.get('/dashboard', requireAuth, (req, res) => {
 
   const topCard = cards.slice().sort((a, b) => (scansByCard[b.id] || 0) - (scansByCard[a.id] || 0))[0];
   const origin = `${req.protocol}://${req.get('host')}`;
-  const now = new Date();
-  const today = now.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' });
-  const quote = quoteOfTheDay(now);
 
   res.send(
     layout(
-      business.name,
-      dashboardPage({
-        business,
+      location.name,
+      locationDashboardPage({
+        location,
+        ownerEmail: owner?.email,
         cards,
         scansByCard,
         lastScanByCard,
@@ -161,21 +244,21 @@ app.get('/dashboard', requireAuth, (req, res) => {
         scansToday,
         topCard,
         origin,
-        today,
-        quote,
+        today: todayLabel(),
       })
     )
   );
 });
 
-// ---------- Cards ----------
-app.post('/cards', requireAuth, (req, res) => {
+app.post('/l/:id/cards', requireAuth, (req, res) => {
+  const db = readDB();
+  const location = ownedLocation(req, db);
+  if (!location) return res.redirect('/dashboard');
+
   const name = (req.body.name || '').trim();
   const destination = (req.body.destination || '').trim();
+  if (!name || !destination) return res.redirect(`/l/${location.id}`);
 
-  if (!name || !destination) return res.redirect('/dashboard');
-
-  const db = readDB();
   let id = slugify(name);
   while (db.cards.some((c) => c.id === id)) {
     id = `${slugify(name)}-${crypto.randomBytes(2).toString('hex')}`;
@@ -183,30 +266,36 @@ app.post('/cards', requireAuth, (req, res) => {
 
   db.cards.push({
     id,
-    businessId: req.session.businessId,
+    locationId: location.id,
     name,
     destination,
     createdAt: new Date().toISOString(),
   });
   writeDB(db);
-  res.redirect('/dashboard');
+  res.redirect(`/l/${location.id}`);
 });
 
-app.post('/cards/:id/update', requireAuth, (req, res) => {
+app.post('/l/:id/cards/:cardId/update', requireAuth, (req, res) => {
   const db = readDB();
-  const card = db.cards.find((c) => c.id === req.params.id && c.businessId === req.session.businessId);
+  const location = ownedLocation(req, db);
+  if (!location) return res.redirect('/dashboard');
+
+  const card = db.cards.find((c) => c.id === req.params.cardId && c.locationId === location.id);
   if (card && req.body.destination) {
     card.destination = req.body.destination.trim();
     writeDB(db);
   }
-  res.redirect('/dashboard');
+  res.redirect(`/l/${location.id}`);
 });
 
-app.post('/cards/:id/delete', requireAuth, (req, res) => {
+app.post('/l/:id/cards/:cardId/delete', requireAuth, (req, res) => {
   const db = readDB();
-  db.cards = db.cards.filter((c) => !(c.id === req.params.id && c.businessId === req.session.businessId));
+  const location = ownedLocation(req, db);
+  if (!location) return res.redirect('/dashboard');
+
+  db.cards = db.cards.filter((c) => !(c.id === req.params.cardId && c.locationId === location.id));
   writeDB(db);
-  res.redirect('/dashboard');
+  res.redirect(`/l/${location.id}`);
 });
 
 // ---------- Endpoint público de escaneo (esto es lo que se graba en la NFC) ----------
@@ -221,11 +310,11 @@ app.get('/t/:id', (req, res) => {
   db.scans.push({ cardId: card.id, at: new Date().toISOString() });
   writeDB(db);
 
-  const business = db.businesses.find((b) => b.id === card.businessId);
+  const location = db.locations.find((l) => l.id === card.locationId);
   res.send(
     layout(
       'Un momento…',
-      scanScreen({ businessName: business?.name, destination: card.destination }),
+      scanScreen({ businessName: location?.name, destination: card.destination }),
       { bare: true }
     )
   );
