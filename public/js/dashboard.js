@@ -14,9 +14,28 @@ function showToast(msg) {
   setTimeout(() => t.classList.remove('show'), 1600);
 }
 
+function animateCount(el) {
+  const target = Number(el.dataset.countTarget || '0');
+  if (!target) {
+    el.textContent = '0';
+    return;
+  }
+  const duration = 700;
+  const start = performance.now();
+  function tick(now) {
+    const p = Math.min(1, (now - start) / duration);
+    const eased = 1 - Math.pow(1 - p, 3);
+    el.textContent = Math.round(eased * target);
+    if (p < 1) requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+}
+
 document.querySelectorAll('.ago[data-iso]').forEach((el) => {
   el.textContent = timeAgo(el.dataset.iso);
 });
+
+document.querySelectorAll('[data-count-target]').forEach((el) => animateCount(el));
 
 document.querySelectorAll('.copy-link').forEach((btn) => {
   btn.addEventListener('click', async () => {
