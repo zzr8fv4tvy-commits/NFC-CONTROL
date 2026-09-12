@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import path from 'path';
 import multer from 'multer';
+import QRCode from 'qrcode';
 import { fileURLToPath } from 'url';
 import { readDB, writeDB } from './db.js';
 import { sendPasswordResetEmail } from './email.js';
@@ -200,7 +201,7 @@ app.post('/signup', (req, res) => {
   writeDB(db);
 
   req.session.ownerId = owner.id;
-  res.redirect('/dashboard');
+  res.redirect('/dashboard?ok=welcome');
 });
 
 // ---------- Login ----------
@@ -362,6 +363,7 @@ app.get('/dashboard', requireAuth, (req, res) => {
         scansToday,
         scansByDay: scansByDaySeries(db.scans, cardIds),
         today: todayLabel(),
+        flash: req.query.ok || null,
       })
     )
   );
@@ -381,7 +383,7 @@ app.post('/locations', requireOwner, (req, res) => {
   };
   db.locations.push(location);
   writeDB(db);
-  res.redirect(`/l/${location.id}`);
+  res.redirect(`/l/${location.id}?ok=location_added`);
 });
 
 // ---------- Panel de un negocio concreto ----------
@@ -434,6 +436,7 @@ app.get('/l/:id', requireAuth, (req, res) => {
         origin,
         today: todayLabel(),
         employees,
+        flash: req.query.ok || null,
       })
     )
   );
@@ -469,7 +472,7 @@ app.post('/l/:id/cards', requireAuth, (req, res) => {
     createdAt: new Date().toISOString(),
   });
   writeDB(db);
-  res.redirect(`/l/${location.id}`);
+  res.redirect(`/l/${location.id}?ok=card_added`);
 });
 
 app.post('/l/:id/cards/:cardId/update', requireAuth, (req, res) => {
@@ -482,7 +485,7 @@ app.post('/l/:id/cards/:cardId/update', requireAuth, (req, res) => {
     card.destination = req.body.destination.trim();
     writeDB(db);
   }
-  res.redirect(`/l/${location.id}`);
+  res.redirect(`/l/${location.id}?ok=card_updated`);
 });
 
 app.get('/l/:id/cards/:cardId/links', requireAuth, (req, res) => {
@@ -514,7 +517,7 @@ app.post('/l/:id/cards/:cardId/update-links', requireAuth, (req, res) => {
   card.mode = 'landing';
   card.links = links;
   writeDB(db);
-  res.redirect(`/l/${location.id}`);
+  res.redirect(`/l/${location.id}?ok=links_saved`);
 });
 
 app.post('/l/:id/cards/:cardId/toggle', requireAuth, (req, res) => {
@@ -523,11 +526,13 @@ app.post('/l/:id/cards/:cardId/toggle', requireAuth, (req, res) => {
   if (!location) return res.redirect(homeRedirectPath(req, db));
 
   const card = db.cards.find((c) => c.id === req.params.cardId && c.locationId === location.id);
+  let ok = 'card_updated';
   if (card) {
     card.active = card.active === false ? true : false;
+    ok = card.active ? 'card_active' : 'card_paused';
     writeDB(db);
   }
-  res.redirect(`/l/${location.id}`);
+  res.redirect(`/l/${location.id}?ok=${ok}`);
 });
 
 app.post('/l/:id/cards/:cardId/delete', requireAuth, (req, res) => {
@@ -537,7 +542,36 @@ app.post('/l/:id/cards/:cardId/delete', requireAuth, (req, res) => {
 
   db.cards = db.cards.filter((c) => !(c.id === req.params.cardId && c.locationId === location.id));
   writeDB(db);
-  res.redirect(`/l/${location.id}`);
+  res.redirect(`/l/${location.id}?ok=card_deleted`);
+});
+
+// ---------- Código QR de una tarjeta ----------
+app.get('/l/:id/cards/:cardId/qr.png', requireAuth, async (req, res) => {
+  const db = readDB();
+  const location = accessibleLocation(req, db);
+  if (!location) return res.redirect(homeRedirectPath(req, db));
+
+  const card = db.cards.find((c) => c.id === req.params.cardId && c.locationId === location.id);
+  if (!card) return res.redirect(`/l/${location.id}`);
+
+  const origin = `${req.protocol}://${req.get('host')}`;
+  const url = `${origin}/t/${card.id}`;
+
+  try {
+    const buffer = await QRCode.toBuffer(url, {
+      width: 480,
+      margin: 1,
+      color: { dark: '#18150F', light: '#FFFFFFFF' },
+    });
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    if (req.query.download) {
+      res.setHeader('Content-Disposition', `attachment; filename="${slugify(card.name)}-qr.png"`);
+    }
+    res.send(buffer);
+  } catch (err) {
+    res.status(500).send('No se pudo generar el código QR.');
+  }
 });
 
 // ---------- Exportar escaneos a CSV ----------
@@ -625,7 +659,7 @@ app.post('/l/:id/employees', requireOwner, (req, res) => {
     createdAt: new Date().toISOString(),
   });
   writeDB(db);
-  res.redirect(`/l/${location.id}`);
+  res.redirect(`/l/${location.id}?ok=employee_added`);
 });
 
 app.post('/l/:id/employees/:employeeId/delete', requireOwner, (req, res) => {
@@ -635,7 +669,7 @@ app.post('/l/:id/employees/:employeeId/delete', requireOwner, (req, res) => {
 
   db.employees = db.employees.filter((e) => !(e.id === req.params.employeeId && e.locationId === location.id));
   writeDB(db);
-  res.redirect(`/l/${location.id}`);
+  res.redirect(`/l/${location.id}?ok=employee_removed`);
 });
 
 // ---------- Logo del negocio ----------
@@ -651,7 +685,7 @@ app.post('/l/:id/logo', requireOwner, upload.single('logo'), (req, res) => {
       writeDB(db);
     }
   }
-  res.redirect(`/l/${location.id}`);
+  res.redirect(`/l/${location.id}?ok=logo_updated`);
 });
 
 // ---------- Endpoint público de escaneo (esto es lo que se graba en la NFC) ----------
